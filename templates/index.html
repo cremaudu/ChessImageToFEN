@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImageToFEN - Convertisseur d'image d'échiquier en FEN</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>ImageToFEN</h1>
+        <div class="upload-container">
+            <div id="drop-zone" class="drop-zone">
+                <p>Glissez une image ici ou</p>
+                <button id="upload-btn" class="btn">Choisir une image</button>
+                <input type="file" id="file-input" accept="image/*" hidden>
+            </div>
+            <div id="preview" class="preview" hidden>
+                <img id="preview-image" src="" alt="Aperçu">
+                <button id="analyze-btn" class="btn">Analyser</button>
+            </div>
+        </div>
+        <div id="result" class="result" hidden>
+            <h2>Position FEN</h2>
+            <div class="fen-container">
+                <input type="text" id="fen-result" readonly>
+                <button id="copy-btn" class="btn">Copier</button>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
