@@ -16,7 +16,6 @@ app = Flask(__name__)
 
 # Configuration
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Initialisation des composants
 image_processor = ImageProcessor()
@@ -33,31 +32,40 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
-        logger.info("Début du traitement de l'upload")
+        logger.info("=== Début du traitement de l'upload ===")
         if 'file' not in request.files:
             logger.error("Aucun fichier dans la requête")
             return jsonify({'success': False, 'error': 'Aucun fichier reçu'})
         
         file = request.files['file']
+        logger.info(f"Fichier reçu: {file.filename}")
+        
         if file.filename == '':
             logger.error("Nom de fichier vide")
             return jsonify({'success': False, 'error': 'Aucun fichier sélectionné'})
         
         # Sauvegarde l'image
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-        logger.info(f"Sauvegarde de l'image dans : {filepath}")
+        logger.info(f"Tentative de sauvegarde de l'image dans : {filepath}")
         file.save(filepath)
+        logger.info("Image sauvegardée avec succès")
                 
         # Traite l'image
-        logger.info("Détection de l'échiquier...")
+        logger.info("Début de la détection de l'échiquier...")
         corners = image_processor.detect_chessboard(filepath)
+        logger.info(f"Résultat de la détection des coins: {corners is not None}")
+        
         if corners is None:
+            logger.error("Échec de la détection de l'échiquier - coins non trouvés")
             return jsonify({'success': False, 'error': 'Échiquier non détecté'})
         
         # Extrait les cases
-        logger.info("Extraction des cases...")
+        logger.info("Début de l'extraction des cases...")
         squares = image_processor.extract_squares(filepath, corners)
+        logger.info(f"Nombre de cases extraites: {len(squares) if squares else 0}")
+        
         if not squares or len(squares) != 64:
+            logger.error(f"Échec de l'extraction des cases - nombre incorrect de cases: {len(squares) if squares else 0}")
             return jsonify({'success': False, 'error': 'Erreur lors de l\'extraction des cases'})
         
         # Classifie les pièces
@@ -106,4 +114,12 @@ def upload_file():
         return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # S'assurer que le dossier d'upload existe
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    
+    # Configuration du serveur
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Limite de 16MB pour les uploads
+    app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+    
+    # Démarrer le serveur
+    app.run(host='127.0.0.1', port=5000, debug=True, use_reloader=False)

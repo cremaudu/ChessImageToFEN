@@ -29,8 +29,12 @@ class ImageProcessor:
             return False, None
             
         try:
-            # Try to read the image
-            image = cv2.imread(image_path)
+            # Read file as binary
+            with open(image_path, 'rb') as f:
+                img_array = np.frombuffer(f.read(), np.uint8)
+            
+            # Decode the image
+            image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
             if image is None:
                 logger.error("Failed to load image")
                 return False, None

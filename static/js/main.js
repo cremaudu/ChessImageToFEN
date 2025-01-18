@@ -1,106 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const dropZone = document.getElementById('drop-zone');
-    const fileInput = document.getElementById('file-input');
-    const uploadBtn = document.getElementById('upload-btn');
-    const preview = document.getElementById('preview');
-    const previewImage = document.getElementById('preview-image');
-    const analyzeBtn = document.getElementById('analyze-btn');
-    const result = document.getElementById('result');
-    const fenResult = document.getElementById('fen-result');
-    const copyBtn = document.getElementById('copy-btn');
-
-    // Gestion du drag & drop
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, preventDefaults, false);
-    });
-
-    function preventDefaults(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => {
-            dropZone.classList.add('dragover');
-        });
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => {
-            dropZone.classList.remove('dragover');
-        });
-    });
-
-    dropZone.addEventListener('drop', handleDrop);
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', handleFileSelect);
-    analyzeBtn.addEventListener('click', analyzeImage);
-    copyBtn.addEventListener('click', copyFEN);
-
-    function handleDrop(e) {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        handleFiles(files);
-    }
-
-    function handleFileSelect(e) {
-        const files = e.target.files;
-        handleFiles(files);
-    }
-
-    function handleFiles(files) {
-        if (files.length > 0) {
-            const file = files[0];
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    previewImage.src = e.target.result;
-                    dropZone.hidden = true;
-                    preview.hidden = false;
-                    result.hidden = true;
-                };
-                reader.readAsDataURL(file);
-            }
-        }
-    }
-
-    async function analyzeImage() {
-        const formData = new FormData();
-        const file = fileInput.files[0];
-        formData.append('image', file);
-
-        try {
-            const response = await fetch('/analyze', {
-                method: 'POST',
-                body: formData
-            });
-
-            const data = await response.json();
-            
-            if (response.ok) {
-                fenResult.value = data.fen;
-                result.hidden = false;
-            } else {
-                alert(data.error || 'Une erreur est survenue lors de l\'analyse');
-            }
-        } catch (error) {
-            console.error('Error:', error);
-            alert('Une erreur est survenue lors de l\'analyse');
-        }
-    }
-
-    async function copyFEN() {
-        try {
-            await navigator.clipboard.writeText(fenResult.value);
-            const originalText = copyBtn.textContent;
-            copyBtn.textContent = 'Copié !';
-            setTimeout(() => {
-                copyBtn.textContent = originalText;
-            }, 2000);
-        } catch (err) {
-            console.error('Failed to copy text: ', err);
-        }
-    }
+    const fileInput = document.getElementById('imageFile');
+    const uploadForm = document.getElementById('uploadForm');
+    const results = document.getElementById('results');
+    const originalImage = document.getElementById('originalImage');
+    const boardSvg = document.getElementById('boardSvg');
+    const fenInput = document.getElementById('fenInput');
+    const analysisResult = document.getElementById('analysisResult');
+    const pgnText = document.getElementById('pgnText');
+    const variationsList = document.getElementById('variationsList');
 
     // Fonctions utilitaires
     function showLoading() {
@@ -114,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showResults() {
-        document.getElementById('results').style.display = 'block';
+        results.style.display = 'block';
     }
 
     // Copie dans le presse-papiers
@@ -130,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Copie du FEN
     async function copyFen() {
-        const fen = document.getElementById('fenInput').value;
+        const fen = fenInput.value;
         if (await copyToClipboard(fen)) {
             alert('FEN copié dans le presse-papiers !');
         }
@@ -138,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Copie du PGN
     async function copyPgn() {
-        const pgn = document.getElementById('pgnText').value;
+        const pgn = pgnText.value;
         if (await copyToClipboard(pgn)) {
             alert('PGN copié dans le presse-papiers !');
         }
@@ -146,7 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Téléchargement du PGN
     function downloadPgn() {
-        const pgn = document.getElementById('pgnText').value;
+        const pgn = pgnText.value;
         const blob = new Blob([pgn], { type: 'text/plain' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -162,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Affichage des variations
     function displayVariations(variations) {
-        const container = document.getElementById('variationsList');
+        const container = variationsList;
         container.innerHTML = '';
         
         variations.forEach((variation, index) => {
@@ -198,11 +105,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Gestionnaire de formulaire
-    document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+    uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         
         const formData = new FormData();
-        const fileInput = document.getElementById('imageFile');
         formData.append('file', fileInput.files[0]);
         
         showLoading();
@@ -217,22 +123,22 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (data.success) {
                 // Affiche l'image originale
-                document.getElementById('originalImage').src = URL.createObjectURL(fileInput.files[0]);
+                originalImage.src = URL.createObjectURL(fileInput.files[0]);
                 
                 // Affiche l'échiquier SVG
-                document.getElementById('boardSvg').innerHTML = data.board_svg;
+                boardSvg.innerHTML = data.board_svg;
                 
                 // Met à jour le FEN
-                document.getElementById('fenInput').value = data.fen;
+                fenInput.value = data.fen;
                 
                 // Met à jour l'analyse
-                document.getElementById('analysisResult').textContent = data.analysis_summary;
+                analysisResult.textContent = data.analysis_summary;
                 if (data.variations) {
                     displayVariations(data.variations);
                 }
                 
                 // Met à jour le PGN
-                document.getElementById('pgnText').value = data.pgn;
+                pgnText.value = data.pgn;
                 
                 showResults();
             } else {
@@ -247,10 +153,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Prévisualisation de l'image
-    document.getElementById('imageFile').addEventListener('change', function(e) {
+    fileInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (file) {
-            document.getElementById('originalImage').src = URL.createObjectURL(file);
+            originalImage.src = URL.createObjectURL(file);
             showResults();
         }
     });
