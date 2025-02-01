@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from typing import Tuple, Optional, List
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,114 +52,166 @@ class ImageProcessor:
             logger.error(f"Error processing image: {str(e)}")
             return False, None
             
-    @staticmethod
-    def detect_chessboard(image: np.ndarray) -> Tuple[bool, Optional[np.ndarray]]:
-        """
-        Detect a chessboard in the image and return its corners.
-        
-        Args:
-            image: Input image as numpy array
-            
-        Returns:
-            Tuple of (success, corners)
-            - success: Boolean indicating if chessboard was detected
-            - corners: np.ndarray of corner coordinates if detected, None otherwise
-        """
-        # Convert to grayscale
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # Apply adaptive thresholding
-        thresh = cv2.adaptiveThreshold(
-            gray,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            11,
-            2
-        )
-        
-        # Try to find the chessboard corners
+    def detect_chessboard(self, image_path: str) -> Tuple[bool, Optional[np.ndarray]]:
+        """Détecte l'échiquier dans l'image et retourne ses coins"""
         try:
-            ret, corners = cv2.findChessboardCorners(gray, (7,7), None)
-            if ret:
-                # Refine the corners
-                criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-                corners = cv2.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)
-                return True, corners
-            else:
-                logger.warning("No chessboard pattern found in the image")
+            # Charge l'image
+            img = cv2.imread(image_path)
+            if img is None:
+                logger.error(f"Impossible de charger l'image : {image_path}")
                 return False, None
+
+            # Convertit en niveaux de gris
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            # Applique un flou gaussien pour réduire le bruit
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            
+            # Détecte les coins de l'échiquier
+            ret, corners = cv2.findChessboardCorners(blurred, (7, 7), None)
+            
+            if ret:
+                # Affine la position des coins
+                criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+                corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
                 
+                # Log des informations sur les coins
+                logger.info(f"Nombre de coins détectés : {len(corners)}")
+                logger.info(f"Forme des coins : {corners.shape}")
+                
+                # Sauvegarde l'image avec les coins détectés pour le debug
+                debug_img = img.copy()
+                cv2.drawChessboardCorners(debug_img, (7, 7), corners, ret)
+                debug_dir = 'debug'
+                os.makedirs(debug_dir, exist_ok=True)
+                debug_path = os.path.join(debug_dir, 'detected_corners.png')
+                cv2.imwrite(debug_path, debug_img)
+                logger.info(f"Image avec coins détectés sauvegardée : {debug_path}")
+                
+                # Extrapoler les coins externes
+                # Calcule la taille moyenne d'une case
+                square_size = np.mean([
+                    np.linalg.norm(corners[1] - corners[0]),
+                    np.linalg.norm(corners[7] - corners[0])
+                ])
+                logger.info(f"Taille moyenne d'une case : {square_size:.2f} pixels")
+                
+                # Calcule les coins externes
+                corners = corners.reshape(-1, 2)
+                top_left = corners[0] - square_size
+                top_right = corners[6] + np.array([square_size, -square_size])
+                bottom_right = corners[-1] + square_size
+                bottom_left = corners[-7] + np.array([-square_size, square_size])
+                
+                # Crée un tableau avec les 4 coins externes
+                board_corners = np.array([
+                    top_left, top_right, bottom_right, bottom_left
+                ], dtype=np.float32)
+                
+                # Dessine les coins externes sur l'image de debug
+                debug_img = img.copy()
+                for i, corner in enumerate(board_corners):
+                    cv2.circle(debug_img, tuple(corner.astype(int)), 5, (0, 0, 255), -1)
+                    if i > 0:
+                        cv2.line(debug_img, 
+                                tuple(board_corners[i-1].astype(int)),
+                                tuple(corner.astype(int)),
+                                (0, 255, 0), 2)
+                cv2.line(debug_img,
+                        tuple(board_corners[-1].astype(int)),
+                        tuple(board_corners[0].astype(int)),
+                        (0, 255, 0), 2)
+                debug_path = os.path.join(debug_dir, 'board_corners.png')
+                cv2.imwrite(debug_path, debug_img)
+                logger.info(f"Image avec coins de l'échiquier sauvegardée : {debug_path}")
+                
+                logger.info("Coins de l'échiquier extrapolés avec succès")
+                logger.info(f"Coins : {board_corners}")
+                
+                return True, board_corners
+            else:
+                logger.error("Pas de coins d'échiquier détectés")
+                return False, None
+            
         except Exception as e:
             logger.error(f"Error detecting chessboard: {str(e)}")
             return False, None
 
-    @staticmethod
-    def extract_grid(image: np.ndarray, corners: np.ndarray) -> Tuple[bool, Optional[List[np.ndarray]]]:
-        """
-        Extract the 64 squares from the chessboard image after perspective correction.
-        
-        Args:
-            image: Input image as numpy array
-            corners: Corner points of the chessboard (7x7 internal corners)
-            
-        Returns:
-            Tuple of (success, squares)
-            - success: Boolean indicating if extraction was successful
-            - squares: List of 64 numpy arrays representing each square if successful, None otherwise
-        """
+    def extract_squares(self, image_path: str, corners: np.ndarray) -> Tuple[bool, List[np.ndarray]]:
+        """Extrait les 64 cases de l'échiquier"""
         try:
-            # We need to estimate the full board corners from the internal corners
-            # The internal corners are 7x7, we need to extrapolate to get 8x8
-            h, w = image.shape[:2]
+            # Charge l'image
+            img = cv2.imread(image_path)
+            if img is None:
+                logger.error(f"Impossible de charger l'image : {image_path}")
+                return False, []
+
+            # Convertit en RGB
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
-            # Reshape corners to 7x7 grid
-            corner_grid = corners.reshape(7, 7, 2)
+            # Trie les coins pour avoir un ordre cohérent
+            corners = self._sort_corners(corners)
             
-            # Estimate square size from corners
-            square_size = np.mean([
-                np.linalg.norm(corner_grid[0,0] - corner_grid[0,1]),
-                np.linalg.norm(corner_grid[0,0] - corner_grid[1,0])
-            ])
-            
-            # Extrapolate outer corners
-            top_left = corner_grid[0,0] - square_size
-            top_right = corner_grid[0,-1] + np.array([square_size, -square_size])
-            bottom_left = corner_grid[-1,0] + np.array([-square_size, square_size])
-            bottom_right = corner_grid[-1,-1] + square_size
-            
-            # Define source points for perspective transform
-            src_points = np.float32([top_left, top_right, bottom_right, bottom_left])
-            
-            # Define destination points (target square board)
-            board_size = 800  # pixels
-            square_size = board_size // 8
-            dst_points = np.float32([
+            # Calcule la matrice de perspective
+            width = height = 800  # Taille plus grande pour une meilleure qualité
+            dst_points = np.array([
                 [0, 0],
-                [board_size, 0],
-                [board_size, board_size],
-                [0, board_size]
-            ])
+                [width - 1, 0],
+                [width - 1, height - 1],
+                [0, height - 1]
+            ], dtype=np.float32)
             
-            # Calculate perspective transform matrix
-            matrix = cv2.getPerspectiveTransform(src_points, dst_points)
+            # Applique la transformation de perspective
+            matrix = cv2.getPerspectiveTransform(corners, dst_points)
+            warped = cv2.warpPerspective(img, matrix, (width, height))
             
-            # Apply perspective transform
-            warped = cv2.warpPerspective(image, matrix, (board_size, board_size))
-            
-            # Split into 64 squares
+            # Extrait chaque case
+            square_size = width // 8
             squares = []
+            
             for row in range(8):
                 for col in range(8):
-                    x1 = col * square_size
-                    y1 = row * square_size
-                    x2 = (col + 1) * square_size
-                    y2 = (row + 1) * square_size
-                    square = warped[y1:y2, x1:x2]
+                    x = col * square_size
+                    y = row * square_size
+                    square = warped[y:y + square_size, x:x + square_size]
+                    
+                    # Ajoute une marge autour de la case pour éviter les effets de bord
+                    margin = square_size // 10
+                    square = cv2.copyMakeBorder(
+                        square,
+                        margin, margin, margin, margin,
+                        cv2.BORDER_CONSTANT,
+                        value=[255, 255, 255]
+                    )
+                    
+                    # Redimensionne à la taille attendue par le modèle
+                    square = cv2.resize(square, (100, 100))
                     squares.append(square)
             
             return True, squares
             
         except Exception as e:
-            logger.error(f"Error extracting grid: {str(e)}")
-            return False, None
+            logger.error(f"Erreur lors de l'extraction des cases : {str(e)}")
+            return False, []
+
+    def _sort_corners(self, corners: np.ndarray) -> np.ndarray:
+        """Trie les coins dans l'ordre : haut-gauche, haut-droite, bas-droite, bas-gauche"""
+        # Calcule le centre des coins
+        center = np.mean(corners, axis=0)
+        
+        # Pour chaque coin, calcule l'angle par rapport au centre
+        angles = np.arctan2(corners[:, 1] - center[1],
+                          corners[:, 0] - center[0])
+        
+        # Trie les coins par angle
+        sorted_indices = np.argsort(angles)
+        sorted_corners = corners[sorted_indices]
+        
+        # Trouve le coin le plus en haut à gauche (plus petite somme x+y)
+        distances = np.sum(sorted_corners, axis=1)
+        start_idx = np.argmin(distances)
+        
+        # Réorganise les coins pour commencer par le coin haut-gauche
+        sorted_corners = np.roll(sorted_corners, -start_idx, axis=0)
+        
+        return sorted_corners.astype(np.float32)

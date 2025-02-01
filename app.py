@@ -52,19 +52,19 @@ def upload_file():
                 
         # Traite l'image
         logger.info("Début de la détection de l'échiquier...")
-        corners = image_processor.detect_chessboard(filepath)
-        logger.info(f"Résultat de la détection des coins: {corners is not None}")
+        success, corners = image_processor.detect_chessboard(filepath)
+        logger.info(f"Résultat de la détection des coins: {success}")
         
-        if corners is None:
+        if not success or corners is None:
             logger.error("Échec de la détection de l'échiquier - coins non trouvés")
             return jsonify({'success': False, 'error': 'Échiquier non détecté'})
         
         # Extrait les cases
         logger.info("Début de l'extraction des cases...")
-        squares = image_processor.extract_squares(filepath, corners)
+        success, squares = image_processor.extract_squares(filepath, corners)
         logger.info(f"Nombre de cases extraites: {len(squares) if squares else 0}")
         
-        if not squares or len(squares) != 64:
+        if not success or not squares or len(squares) != 64:
             logger.error(f"Échec de l'extraction des cases - nombre incorrect de cases: {len(squares) if squares else 0}")
             return jsonify({'success': False, 'error': 'Erreur lors de l\'extraction des cases'})
         
@@ -74,7 +74,12 @@ def upload_file():
         
         # Génère le FEN
         logger.info("Génération du FEN...")
-        fen = fen_generator.generate_fen(pieces)
+        try:
+            fen = fen_generator.pieces_to_fen(pieces)
+            logger.info(f"FEN généré : {fen}")
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération du FEN : {str(e)}")
+            return jsonify({'success': False, 'error': 'Erreur lors de la génération du FEN'})
         
         # Analyse la position
         logger.info("Analyse de la position...")
